@@ -1,0 +1,93 @@
+name: Android CI
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**/*.md']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vcmi-builds-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Compile, lint, and build instrumentation tests
+        run: gradle --no-daemon :app:assembleDebug :app:lintDebug :app:assembleDebugAndroidTest
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vcmi-builds-debug-and-device-tests
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  signed-release:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Decode stable signing key
+        env:
+          HELPER_KEYSTORE_BASE64: ${{ secrets.VCMI_BUILDS_KEYSTORE_BASE64 }}
+          HELPER_SIGNING_PASSWORD: ${{ secrets.VCMI_BUILDS_KEYSTORE_PASSWORD }}
+        run: |
+          test -n "$HELPER_KEYSTORE_BASE64" && test -n "$HELPER_SIGNING_PASSWORD"
+          umask 077
+          printf '%s' "$HELPER_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/vcmi-builds.jks"
+      - name: Assemble signed release
+        env:
+          HELPER_SIGNING_STORE: ${{ runner.temp }}/vcmi-builds.jks
+          HELPER_SIGNING_PASSWORD: ${{ secrets.VCMI_BUILDS_KEYSTORE_PASSWORD }}
+        run: gradle --no-daemon :app:assembleRelease :app:lintRelease
+      - name: Verify package and signing
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk vcmi-builds.apk
+          build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$build_tools/aapt" dump badging vcmi-builds.apk | grep "package: name='dev.vcmi.builds'"
+          "$build_tools/apksigner" verify --verbose vcmi-builds.apk
+          "$build_tools/apksigner" verify --print-certs vcmi-builds.apk > vcmi-builds-signing-certificate.txt
+          sha256sum vcmi-builds.apk > vcmi-builds.apk.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vcmi-builds-installer
+          path: |
+            vcmi-builds.apk
+            vcmi-builds.apk.sha256
+            vcmi-builds-signing-certificate.txt
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove signing material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/vcmi-builds.jks"

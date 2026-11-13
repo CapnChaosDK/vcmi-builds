@@ -1,66 +1,49 @@
 # VCMI Builds
 
-Small native Android app (Android 8 or later) for downloading APKs from GitHub Releases or GitHub Actions artifacts and opening Android's installer.
+Independent Android companion for downloading, installing, and validating VCMI Thor candidate builds.
 
-## Produce an APK on GitHub
+- Android package: `dev.vcmi.builds` (preserved for updates)
+- Default game repository: [`CapnChaosDK/vcmi_thor`](https://github.com/CapnChaosDK/vcmi_thor)
+- Default game candidate branch: `ci/thor-candidate-validation`
+- Android SDK 35, Java 17, Gradle 8.9 (installed by CI)
+- Candidate verification: archive digest, signed receipt identity, package, ABI, APK checksum and packaged validation plan
+- Local candidate and per-build result persistence; encrypted GitHub token, installer handoff, report copy/share
 
-1. Keep this project under `tools/vcmi-builds` with `.github/workflows/vcmi-builds-helper.yml` at the repository root.
-2. Push helper changes to `codex/vcmi-builds-helper` to run **Build VCMI helper APK**.
-3. Once the build succeeds, download the **vcmi-builds-installer** artifact.
-4. Verify the included checksum for `vcmi-builds.apk`, transfer it to your phone, and open it to install.
+## Build
 
-From 0.2.0, the workflow builds a release APK with a dedicated stable helper signing key. The repository secrets `VCMI_BUILDS_KEYSTORE_BASE64` and `VCMI_BUILDS_KEYSTORE_PASSWORD` must be configured; missing secrets fail the build rather than falling back to a disposable key. Signing material is decoded only into the runner's temporary directory and removed after the job; it is never uploaded as an artifact. Only trusted helper-branch pushes build signed packages, never pull requests. Keep the key backup and its password outside the repository. Earlier debug-signed versions require one uninstall/reinstall of the helper; this does not uninstall VCMI. Later updates signed with this key preserve helper data.
+In this repository's root, with Java 17, Android SDK 35, and Gradle 8.9:
 
-## Local build
-
-Open this folder in Android Studio and install Android SDK Platform 35 when prompted. With Gradle 8.9 and Java 17 or 21 installed:
-
-```
-gradle :app:assembleDebug
+```sh
+gradle :app:assembleDebug :app:lintDebug :app:assembleDebugAndroidTest
 ```
 
-Output: `app/build/outputs/apk/debug/app-debug.apk`.
+For new commits and pull requests, `.github/workflows/android-ci.yml` compiles the debug app and instrumentation tests. On `main` pushes (including the migration commit), it additionally builds a signed release **only once both signing secrets are configured**.
 
-## Use
+## Release signing — required one-time setup
 
-- Enter `owner/repository` or its GitHub URL.
-- Choose Releases or Actions artifacts. Enter a branch to filter Actions runs if desired.
-- Public Releases do not require a token. Actions artifact downloads require a token; for a fine-grained token, give the selected repository **Actions: read** access. Private Releases additionally need **Contents: read** access.
-- Paste the token and tap **Save token** or **Check newest builds**. The token is encrypted with AES-GCM using a non-exportable Android Keystore key and stored in app-private preferences. It is restored after app/process restarts and device reboots, and retained across helper updates signed with the same key. App backups are disabled; uninstalling/clearing helper data removes it. GitHub expiration/revocation still requires a replacement token.
-- **Forget token** removes the saved ciphertext and key, clears the field and download buttons, and does not revoke the token on GitHub. Token controls are disabled during requests. A missing/invalid key or damaged ciphertext fails closed with a recovery message; use Forget and save again. No plaintext fallback is used.
-- Check newest builds, choose a download, then tap Install downloaded APK. For archives containing several APKs, choose the APK matching your device ABI shown on screen.
-- Android asks you to allow installation from this app and confirm each install. Updating VCMI requires compatible package IDs and signing certificates. The app cannot silently install or bypass Android's signature/version checks.
+Configure the **existing** signing credentials in this new repository under exactly these names. GitHub does not reveal previously saved secret values, so use your original keystore/password backup (not the old GitHub Secrets screen):
 
-## Limits and validation
+- `VCMI_BUILDS_KEYSTORE_BASE64`
+- `VCMI_BUILDS_KEYSTORE_PASSWORD`
 
-- 0.2.0 includes device instrumentation using synthetic tokens in a separate record/key. Build `:app:assembleDebug :app:assembleDebugAndroidTest`, install both debug/test APKs, and run `adb shell am instrument -w dev.vcmi.builds.test/dev.vcmi.builds.TokenStoreInstrumentation`. It checks empty/replaced/restored tokens, nonce uniqueness, ciphertext tampering, corrupt records, missing keys, recovery and Forget. With both debug/release APKs signed by the stable key, run with `-e phase seed`, force-stop the helper, install the release APK with `adb install -r`, then run with `-e phase verify` to check storage across process restart and APK replacement. Remove the test package afterward. These checks never read the user's token.
-- On device, save a real scoped token, list/download an Actions artifact, close/reopen the helper, reboot and reopen, then verify builds still load. Check Forget clears saved access, and saving a replacement restores it. Actual reboot and real-token download behavior require the user's confirmation; instrumentation is not a substitute.
-- Validation receipt (2026-10-21): implementation `7f67e6953cbcd918b6c314c811b5597166a30efa`, [helper CI 39661507640](https://github.com/CapnChaosDK/vcmi_thor/actions/runs/39661507640) passed release assemble/lint, debug/test APK compilation and package/signature checks. Release APK SHA-256: `b604df80c84b299fd8b8e981add423077def347c65c5afb6b855ea1e4de2cf05`; stable certificate SHA-256: `c2b4d17842dc56e748afef044e78bd6d96cda0d2e853b9f9c2caf29276cee80d`. All TokenStore instrumentation checks passed on the confirmed AYN Thor, including synthetic-token persistence after force-stop and debug-to-release replacement with `adb install -r`. The test package was removed and non-debuggable release 0.2.0 was installed/launched. Real-token UI/download and physical reboot confirmation remain pending.
+Do **not** create a new key, change package ID, or upload secrets to git. The Gradle signing alias remains `vcmi-builds`. If the previous key is not recoverable, a new signature cannot update the existing installed app in place: pause and recover the existing key first.
 
-- Version 0.1.1 corrects HTTP 415 when downloading Actions artifacts: the archive API request uses `application/vnd.github+json`, while Release asset downloads retain `application/octet-stream`. A live authenticated comparison on 2026-10-21 reproduced HTTP 415 with the old header and HTTP 302 with the corrected header. Complete download/install behavior on the Thor still requires device validation.
+After secrets are set, rerun **Android CI** on `main` using **Run workflow**. Download the `vcmi-builds-installer` artifact, verify checksum and certificate, install using `adb install -r vcmi-builds.apk`, and check that existing settings, token, saved candidates and results persist. `assembleDebugAndroidTest` compiles instrumentation tests but does not run them without an Android device.
 
-- Defaults to `CapnChaosDK/vcmi_thor`, Actions artifacts, and `ci/thor-candidate-validation`.
-- Discovers the 30 most recent releases or successful Actions runs. Artifacts may be expired, or may contain no APK. Split APK sets and Android App Bundles are unsupported.
-- Downloads require keeping the app open; background/resumable downloads are not implemented. Interrupting a download may require retrying.
-- Version 0.1.0 passed GitHub assemble/lint/package checks and was installed and launched on an AYN Thor. Token-authenticated build listing worked on device; artifact downloading exposed the HTTP 415 fixed in 0.1.1. This does not establish a complete download/install device pass.
+To run device test instrumentation, install the same-key-signed debug and test APKs and use:
 
-## 0.3.0 — candidate validation workflow
+```sh
+adb shell am instrument -w -e phase candidate dev.vcmi.builds.test/dev.vcmi.builds.TokenStoreInstrumentation
+```
 
-Home now lists recent Thor CI candidates (including running/failed runs), verified
-local candidates and saved results. Settings holds repository/branch and encrypted
-token configuration; Advanced downloads retains the previous generic/Release flow.
-See [the companion contract](../../docs/THOR_CANDIDATE_COMPANION.md) for the full
-verification, checklist, persistence and reporting contract, including limits.
+Only perform that command using test APKs signed compatibly with the existing app; do not overwrite a real installation with a differently signed debug APK.
 
-A verified candidate offers Install, Launch VCMI, exact installed-APK verification,
-and its packaged checklist. Save result records Pass/Fail/Blocked/Not tested with
-notes only after hashing the currently installed Thor APK. Drafts are retained while
-editing; Copy/Share reports the exact candidate identity and user-reported outcomes.
-No result authorizes merging or promotion. Older artifacts with no packaged plan
-are clearly identified and retain a link to the backlog at their commit.
+## Contract ownership
 
-Candidate downloads now use a foreground service and can be cancelled from its
-notification. The earlier activity-bound download limitation still applies only to
-Advanced downloads. Interrupted candidate transfers can be retried. The device test
-suite's `-e phase candidate` mode checks verification and result isolation without
-reading the user's token or altering the installed game.
+The **VCMI Thor repository** owns `CI/thor-validation-plan.json`, the plan validator, receipt binding and packaged artifacts. This downloader only consumes and verifies those immutable packaged contracts; do not copy or independently author the game's validation plan. See [candidate contract](docs/CANDIDATE_CONTRACT.md).
+
+## Migration / history
+
+The source was extracted from [`vcmi_thor/tools/vcmi-builds`](https://github.com/CapnChaosDK/vcmi_thor/tree/ayn-thor-dual-screen/tools/vcmi-builds) using `git-filter-repo`; Git commits affecting that subdirectory are preserved as standalone history. The former root-level helper workflow was migrated into this repository. The VCMI Thor source and workflow should be removed **only after** signing, CI, device update and candidate download verification succeed.
+
+This downloader is a separate product and should not trigger native VCMI builds when its own code changes.
