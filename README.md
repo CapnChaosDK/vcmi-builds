@@ -21,13 +21,19 @@ Android CI compiles the debug app and instrumentation tests on pull requests and
 
 ## Update on Thor
 
-Install the first updater-enabled APK, version 0.4.0, from this repository's [GitHub Releases](https://github.com/CapnChaosDK/vcmi-builds/releases) over your existing installation. Once installed, open **Update VCMI Builds** on the home screen, check for an update, download it and confirm installation in Android. The updater uses this repository's public APK releases without a GitHub token. Android may prompt you to allow installs from VCMI Builds.
+Install an updater-enabled APK (0.4.0 or newer) from this repository's [GitHub Releases](https://github.com/CapnChaosDK/vcmi-builds/releases) over your existing installation. Open **Settings → Update VCMI Builds** (on the home screen in 0.4.0), check for an update, download it and confirm installation in Android. The updater uses this repository's public APK releases without a GitHub token. Android may prompt you to allow installs from VCMI Builds.
 
 Keep the update screen open during download. If interrupted, check again and retry. A completed, verified download remains available across restarts and installer cancellation. The updater checks the release checksum, package ID, signing certificate and version before making the APK available. The normal Thor candidate controls still use the game repository and its saved token.
 
 For the on-device check, start with a same-key-signed updater-enabled build and a newer GitHub release. Check for the update, download it, decline install permission once, then grant it and cancel the Android installer. Reopen the updater and install the same download. Confirm the new version reports that it is up to date and that your token, saved candidates and results survived. Verify that checking for game builds still works.
 
 Run the update metadata instrumentation with `adb shell am instrument -w -e phase update dev.vcmi.builds.test/dev.vcmi.builds.TokenStoreInstrumentation` on a compatible test installation.
+
+## Find and resume Thor builds
+
+Use **Check for new builds** to refresh the GitHub list. After verification, open **Downloaded builds** to install a candidate or view its results. The last-opened build appears first, and the latest download is marked in the same list.
+
+On Thor, check the empty list and then download two candidates. Open the older candidate, return with Android Back, and verify it appears first while the newer one still says **Latest download**. Reopen the app and verify the same ordering and saved results. Check that **Cancel download** appears during a transfer and that the updater is reachable from Settings.
 
 ## Release signing — required one-time setup
 

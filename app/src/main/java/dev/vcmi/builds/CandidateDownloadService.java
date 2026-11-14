@@ -80,7 +80,7 @@ public final class CandidateDownloadService extends Service {
             java.nio.file.Files.move(staged.toPath(),target.toPath(),java.nio.file.StandardCopyOption.REPLACE_EXISTING,java.nio.file.StandardCopyOption.ATOMIC_MOVE);
             checkCancelled();
             CandidateStore.write(new File(store.directory(key),"candidate.json"),verified);
-            status("Download verified. Ready to install.",false,key);
+            status("Download verified. Open Downloaded builds to install.",false,key);
         } catch (Exception e) { status(cancelled?"Download cancelled.":"Download failed: "+e.getMessage(),false,""); }
         finally {
             if (connection!=null) { connection.disconnect(); connection=null; }
