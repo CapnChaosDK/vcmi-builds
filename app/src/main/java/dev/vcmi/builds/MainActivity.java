@@ -39,7 +39,7 @@ public final class MainActivity extends Activity {
                     state.edit().putBoolean("busy",false).putString("message",message).apply();
                 }
                 if (!message.equals(lastTransfer)) { transfer.setText(message); lastTransfer=message; }
-                if (cancelDownload!=null) cancelDownload.setEnabled(downloading());
+                if (cancelDownload!=null) cancelDownload.setVisibility(downloading()?View.VISIBLE:View.GONE);
             }
             handler.postDelayed(this,1000);
         }
@@ -50,6 +50,7 @@ public final class MainActivity extends Activity {
         selectedKey=preferences.getString("selected-key","");
         if (state!=null) screen=state.getString("screen","home");
         if (screen.equals("detail") && !selectedKey.isEmpty()) openLocal(selectedKey);
+        else if (screen.equals("history")) history();
         else if (screen.equals("settings")) settings(); else home();
     }
     @Override protected void onSaveInstanceState(Bundle state) { super.onSaveInstanceState(state); state.putString("screen",screen); }
@@ -60,7 +61,8 @@ public final class MainActivity extends Activity {
         ScrollView scroll=new ScrollView(this); page=new LinearLayout(this); page.setOrientation(LinearLayout.VERTICAL);
         page.setPadding(dp(18),dp(24),dp(18),dp(24)); page.setBackgroundColor(Color.rgb(18,23,32)); scroll.addView(page);
         setContentView(scroll); label(title,26); transfer=label(CandidateDownloadService.state(this).getString("message",""),13); lastTransfer=transfer.getText().toString();
-        if (!screen.equals("home")) button("Back to builds",v->home());
+        if (screen.equals("detail")) button("Back to downloaded builds",v->history());
+        else if (!screen.equals("home")) button("Back to Thor builds",v->home());
     }
     private TextView label(String text,int size) {
         TextView view=new TextView(this); view.setText(text); view.setTextSize(size); view.setTextColor(Color.rgb(225,232,242));
@@ -75,27 +77,22 @@ public final class MainActivity extends Activity {
     private String branch() { return preferences.getString("branch","ci/thor-candidate-validation"); }
     private boolean downloading() { return CandidateDownloadService.running || CandidateDownloadService.state(this).getBoolean("busy",false); }
     private void home() {
-        screen="home"; selected=null; shell("Thor · Build & validate");
-        label(repo()+"\n"+branch(),14);
+        screen="home"; selected=null; shell("Thor builds");
+        button("Check for new builds",v->refresh());
+        button("Downloaded builds",v->history());
         button("Settings",v->settings());
-        button("Update VCMI Builds",v->startActivity(new Intent(this,HelperUpdateActivity.class)));
-        button("Check newest builds",v->refresh());
-        button("Downloaded candidates & results",v->history());
-        button("Open latest verified download",v->{
-            String key=CandidateDownloadService.state(this).getString("key","");
-            if (key.isEmpty()) message("No completed download yet. Choose a ready candidate below."); else openLocal(key);
-        });
-        if (!selectedKey.isEmpty()) button("Continue previous validation",v->openLocal(selectedKey));
         cancelDownload=button("Cancel download",v->{ if (downloading()) startService(new Intent(this,CandidateDownloadService.class).setAction("cancel")); });
-        cancelDownload.setEnabled(downloading());
+        cancelDownload.setVisibility(downloading()?View.VISIBLE:View.GONE);
         File cached=new File(getFilesDir(),"build-list.json");
         try {
             JSONObject cache=CandidateStore.read(cached);
             if (cache.getString("repo").equals(repo()) && cache.getString("branch").equals(branch())) {
-                label("Last checked: "+new Date(cache.getLong("at"))+"\nRefresh for current build status.",13);
+                label("Last checked: "+new Date(cache.getLong("at")),13);
                 renderRuns(cache.getJSONArray("runs"));
+                return;
             }
-        } catch (Exception ignored) { label("Check builds to find the latest candidate, including builds still running or failed.",16); }
+        } catch (Exception ignored) { }
+        label("Check for new builds to see what’s available from GitHub.",16);
     }
     private void renderRuns(JSONArray runs) throws Exception {
         boolean firstReady=true;
@@ -154,15 +151,36 @@ public final class MainActivity extends Activity {
         } catch (Exception e) { message("Could not start download: "+e.getMessage()); }
     }
     private void history() {
-        screen="history"; shell("Downloaded candidates & results");
-        for (JSONObject c:store.history()) {
-            try {
-                String key=CandidateStore.key(c); JSONObject plan=c.optJSONObject("plan");
-                String summary=plan==null?"No packaged checklist":ValidationPlan.summary(plan,store.results(key));
-                button(c.optString("title")+"\n"+shortSha(c)+" · "+summary,v->openLocal(key));
-            } catch (Exception ignored) { }
+        screen="history"; selected=null; shell("Downloaded builds");
+        List<JSONObject> builds=store.history();
+        if (builds.isEmpty()) {
+            label("No verified candidates downloaded yet.",16);
+            return;
         }
-        if (store.history().isEmpty()) label("No verified candidates downloaded yet.",16);
+        Map<String,JSONObject> entries=new LinkedHashMap<>();
+        for (JSONObject build:builds) {
+            try { entries.put(CandidateStore.key(build),build); }
+            catch (Exception ignored) { }
+        }
+        if (entries.isEmpty()) {
+            label("No verified candidates available.",16);
+            return;
+        }
+        String newest=entries.keySet().iterator().next();
+        JSONObject lastOpened=entries.remove(selectedKey);
+        if (lastOpened!=null) downloadedBuild(selectedKey,lastOpened,newest);
+        entries.forEach((key,build)->downloadedBuild(key,build,newest));
+    }
+    private void downloadedBuild(String key,JSONObject build,String newest) {
+        JSONObject plan=build.optJSONObject("plan");
+        String summary="No packaged checklist";
+        if (plan!=null) {
+            try { summary=ValidationPlan.summary(plan,store.results(key)); }
+            catch (Exception ignored) { summary="Results unavailable"; }
+        }
+        String heading=key.equals(selectedKey)?"Last opened · ":"";
+        if (key.equals(newest)) heading+="Latest download · ";
+        button(heading+build.optString("title")+"\n"+shortSha(build)+" · "+summary,v->openLocal(key));
     }
     private void openLocal(String key) {
         try {
@@ -189,7 +207,7 @@ public final class MainActivity extends Activity {
                 button("Copy validation report",v->report(key,false)); button("Share validation report",v->report(key,true));
             }
             button("View CI build",v->browse(selected.optString("run_url"))); checkInstalled();
-        } catch (Exception e) { home(); message("Could not open saved candidate: "+e.getMessage()); }
+        } catch (Exception e) { history(); message("Could not open saved candidate: "+e.getMessage()); }
     }
     private void checkInstalled() {
         if (!screen.equals("detail") || selected==null) return;
@@ -300,6 +318,7 @@ public final class MainActivity extends Activity {
     }
     private void settings() {
         screen="settings"; shell("Settings");
+        button("Update VCMI Builds",v->startActivity(new Intent(this,HelperUpdateActivity.class)));
         EditText repository=field("Repository",repo(),false), filter=field("Candidate branch",branch(),false);
         String saved=""; try { saved=new TokenStore(this).load(); } catch (Exception e) { label("Saved token could not be unlocked. Forget it and save a replacement.",15); }
         EditText token=field("GitHub token",saved,true); token.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
@@ -326,6 +345,10 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onResume() { super.onResume(); handler.post(ticker); checkInstalled(); }
     @Override protected void onPause() { handler.removeCallbacks(ticker); super.onPause(); }
-    @Override public void onBackPressed() { if (!screen.equals("home")) home(); else super.onBackPressed(); }
+    @Override public void onBackPressed() {
+        if (screen.equals("detail")) history();
+        else if (!screen.equals("home")) home();
+        else super.onBackPressed();
+    }
     @Override protected void onDestroy() { handler.removeCallbacks(ticker); worker.shutdownNow(); super.onDestroy(); }
 }
