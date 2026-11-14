@@ -17,7 +17,17 @@ In this repository's root, with Java 17, Android SDK 35, and Gradle 8.9:
 gradle :app:assembleDebug :app:lintDebug :app:assembleDebugAndroidTest
 ```
 
-For new commits and pull requests, `.github/workflows/android-ci.yml` compiles the debug app and instrumentation tests. On `main` pushes (including the migration commit), it additionally builds a signed release **only once both signing secrets are configured**.
+Android CI compiles the debug app and instrumentation tests on pull requests and `main` pushes. Trusted `main` builds also require the existing signing secrets, then publish the verified APK and checksum to GitHub Releases. Increase `versionCode` for each new APK release. An existing release for a different commit cannot be overwritten by reusing its version code.
+
+## Update on Thor
+
+Install the first updater-enabled APK, version 0.4.0, from this repository's [GitHub Releases](https://github.com/CapnChaosDK/vcmi-builds/releases) over your existing installation. Once installed, open **Update VCMI Builds** on the home screen, check for an update, download it and confirm installation in Android. The updater uses this repository's public APK releases without a GitHub token. Android may prompt you to allow installs from VCMI Builds.
+
+Keep the update screen open during download. If interrupted, check again and retry. A completed, verified download remains available across restarts and installer cancellation. The updater checks the release checksum, package ID, signing certificate and version before making the APK available. The normal Thor candidate controls still use the game repository and its saved token.
+
+For the on-device check, start with a same-key-signed updater-enabled build and a newer GitHub release. Check for the update, download it, decline install permission once, then grant it and cancel the Android installer. Reopen the updater and install the same download. Confirm the new version reports that it is up to date and that your token, saved candidates and results survived. Verify that checking for game builds still works.
+
+Run the update metadata instrumentation with `adb shell am instrument -w -e phase update dev.vcmi.builds.test/dev.vcmi.builds.TokenStoreInstrumentation` on a compatible test installation.
 
 ## Release signing — required one-time setup
 

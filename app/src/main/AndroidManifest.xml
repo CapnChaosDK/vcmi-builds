@@ -13,6 +13,7 @@
             </intent-filter>
         </activity>
         <activity android:name=".AdvancedDownloadsActivity" android:exported="false" />
+        <activity android:name=".HelperUpdateActivity" android:exported="false" />
         <service android:name=".CandidateDownloadService" android:exported="false" android:foregroundServiceType="dataSync" />
         <provider android:name=".ApkProvider" android:authorities="dev.vcmi.builds.apk" android:exported="false" android:grantUriPermissions="true" />
     </application>
