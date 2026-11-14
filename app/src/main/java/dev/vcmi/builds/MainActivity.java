@@ -78,6 +78,7 @@ public final class MainActivity extends Activity {
         screen="home"; selected=null; shell("Thor · Build & validate");
         label(repo()+"\n"+branch(),14);
         button("Settings",v->settings());
+        button("Update VCMI Builds",v->startActivity(new Intent(this,HelperUpdateActivity.class)));
         button("Check newest builds",v->refresh());
         button("Downloaded candidates & results",v->history());
         button("Open latest verified download",v->{

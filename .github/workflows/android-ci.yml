@@ -44,6 +44,8 @@ jobs:
   signed-release:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: verify
+    permissions:
+      contents: write
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -72,10 +74,15 @@ jobs:
           HELPER_SIGNING_PASSWORD: ${{ secrets.VCMI_BUILDS_KEYSTORE_PASSWORD }}
         run: gradle --no-daemon :app:assembleRelease :app:lintRelease
       - name: Verify package and signing
+        id: apk
         run: |
           cp app/build/outputs/apk/release/app-release.apk vcmi-builds.apk
           build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
-          "$build_tools/aapt" dump badging vcmi-builds.apk | grep "package: name='dev.vcmi.builds'"
+          package=$("$build_tools/aapt" dump badging vcmi-builds.apk | sed -n '1p')
+          [[ "$package" == "package: name='dev.vcmi.builds' "* ]]
+          code=$(sed -n "s/.*versionCode='\([0-9][0-9]*\)'.*/\1/p" <<< "$package")
+          [[ "$code" =~ ^[1-9][0-9]*$ ]]
+          echo "tag=android-$code" >> "$GITHUB_OUTPUT"
           "$build_tools/apksigner" verify --verbose vcmi-builds.apk
           "$build_tools/apksigner" verify --print-certs vcmi-builds.apk > vcmi-builds-signing-certificate.txt
           sha256sum vcmi-builds.apk > vcmi-builds.apk.sha256
@@ -88,6 +95,27 @@ jobs:
             vcmi-builds-signing-certificate.txt
           if-no-files-found: error
           retention-days: 14
+      - name: Publish the update to GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.apk.outputs.tag }}
+        run: |
+          # Upload to a draft before making it visible to the updater.
+          if existing=$(gh release view "$RELEASE_TAG" --json isDraft,targetCommitish); then
+            if [[ $(jq -r .targetCommitish <<< "$existing") != "$GITHUB_SHA" ]]; then
+              echo "::error::Increase versionCode to publish a new VCMI Builds APK."
+              exit 1
+            fi
+            if [[ $(jq -r .isDraft <<< "$existing") == false ]]; then
+              echo "This commit already has a published release."
+              exit 0
+            fi
+          else
+            gh release create "$RELEASE_TAG" --draft --target "$GITHUB_SHA" \
+              --title "VCMI Builds ($RELEASE_TAG)" --generate-notes
+          fi
+          gh release upload "$RELEASE_TAG" --clobber vcmi-builds.apk vcmi-builds.apk.sha256 vcmi-builds-signing-certificate.txt
+          gh release edit "$RELEASE_TAG" --draft=false --latest
       - name: Remove signing material
         if: always()
         run: rm -f "$RUNNER_TEMP/vcmi-builds.jks"

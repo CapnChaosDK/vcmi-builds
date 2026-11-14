@@ -15,6 +15,7 @@ public final class ApkProvider extends ContentProvider {
     public boolean onCreate() { return true; }
     private File apk(Uri uri) {
         if ("/build.apk".equals(uri.getPath())) return new File(getContext().getFilesDir(), "build.apk");
+        if ("/vcmi-builds-update.apk".equals(uri.getPath())) return HelperUpdate.apk(getContext());
         java.util.List<String> segments=uri.getPathSegments();
         if (segments.size()==3 && segments.get(0).equals("candidates") && segments.get(2).equals("build.apk")) {
             try { return new CandidateStore(getContext()).apk(segments.get(1)); }

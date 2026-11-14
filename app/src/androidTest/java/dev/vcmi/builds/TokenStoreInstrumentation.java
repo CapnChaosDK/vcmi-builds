@@ -15,6 +15,17 @@ public final class TokenStoreInstrumentation extends Instrumentation {
     }
     @Override public void onStart() {
         Bundle result=new Bundle();
+        if ("update".equals(phase)) {
+            try {
+                HelperUpdateTests.run();
+                result.putString("stream", "Helper update contract checks passed\n");
+                finish(Activity.RESULT_OK, result);
+            } catch (Throwable failure) {
+                result.putString("stream", "Helper update contract failed: " + failure);
+                finish(Activity.RESULT_CANCELED, result);
+            }
+            return;
+        }
         if ("candidate".equals(phase)) {
             try { CandidateContractTests.run(getTargetContext()); result.putString("stream","Candidate workflow: all device contract checks passed\n"); finish(Activity.RESULT_OK,result); }
             catch (Throwable failure) { result.putString("stream","Candidate workflow failed: "+failure); finish(Activity.RESULT_CANCELED,result); }
